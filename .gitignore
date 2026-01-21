@@ -1,6 +1,7 @@
 node_modules
 dist
 out
-*.vsix
+packages/*.vsix
+!packages/.gitkeep
 .DS_Store
 .vscode-test
