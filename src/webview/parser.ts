@@ -148,14 +148,20 @@ function transformToMindMap(xmindNode: any, isRoot: boolean = true): any {
 
     const node: any = {
         data: {
+            // Copy all properties to preserve styles, etc.
+            ...xmindNode,
             text: xmindNode.title,
-            // Store original ID to potentially preserve it
             uid: xmindNode.id,
-            // Map structureClass to simple-mind-map layout
             layout: layout
         },
         children: []
     };
+
+    // Remove internal XMind structures that we handle separately or don't want in 'data'
+    delete node.data.children;
+    delete node.data.title;
+    delete node.data.id;
+    delete node.data.structureClass;
 
     if (xmindNode.children && xmindNode.children.attached) {
         node.children = xmindNode.children.attached.map((child: any) => transformToMindMap(child, false));
@@ -165,14 +171,21 @@ function transformToMindMap(xmindNode: any, isRoot: boolean = true): any {
 
 function transformToXMind(mmNode: any): any {
     const xmindNode: any = {
-        "id": mmNode.data.uid || uuidv4(),
+        // Restore all original properties
+        ...mmNode.data,
+        "id": mmNode.data.uid || mmNode.data.id || uuidv4(),
         "title": mmNode.data.text,
         "class": "topic"
     };
 
+    // Clean up simple-mind-map specific fields from the XMind output
+    delete xmindNode.text;
+    delete xmindNode.uid;
+
     if (mmNode.data.layout) {
         xmindNode.structureClass = REVERSE_LAYOUT_MAP[mmNode.data.layout];
     }
+    delete xmindNode.layout;
 
     if (mmNode.children && mmNode.children.length > 0) {
         xmindNode.children = {

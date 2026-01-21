@@ -143,6 +143,14 @@ export class XMindEditorProvider implements vscode.CustomEditorProvider<XMindDoc
             case 'edit':
                 document.makeEdit();
                 break;
+            case 'undo':
+            case 'redo':
+                // For now, these are handled via webview postMessage initiated from HTML buttons
+                // If we want to support VS Code side undo, we'd need to forward this to all webviews
+                for (const panel of this.webviews.get(document.uri)) {
+                    this.postMessage(panel, message.type, {});
+                }
+                break;
             case 'response':
                 const callback = this._callbacks.get(message.requestId);
                 callback?.(message.body);
@@ -176,56 +184,118 @@ export class XMindEditorProvider implements vscode.CustomEditorProvider<XMindDoc
                     #mindmap { 
                         flex: 1;
                         width: 100%; 
-                        height: 0; /* Important for flex-grow to work correctly */
+                        height: 0;
                         position: relative;
                         background: #fff;
                     }
-                    #tab-container { 
+                    #tab-container {
                         flex-shrink: 0;
-                        height: 36px; 
-                        background: #f0f0f0; 
-                        border-top: 1px solid #ccc; 
-                        display: flex; 
-                        align-items: center; 
-                        padding: 0 10px;
+                        height: 34px; /* Slightly slimmer */
+                        background: #f8f8f8;
+                        border-top: 1px solid #ddd;
+                        display: flex;
+                        align-items: center;
+                        padding: 0 12px;
                         overflow: hidden;
                         z-index: 100;
+                        justify-content: space-between;
+                        box-shadow: 0 -2px 5px rgba(0,0,0,0.05);
                     }
+                    #history-controls, #controls {
+                        display: flex;
+                        align-items: center;
+                        gap: 6px;
+                        flex-shrink: 0;
+                    }
+                    #history-controls button, #controls button {
+                        background: transparent;
+                        border: 1px solid transparent;
+                        border-radius: 4px;
+                        padding: 4px;
+                        cursor: pointer;
+                        font-size: 16px;
+                        line-height: 1;
+                        transition: all 0.2s;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        color: #666;
+                    }
+                    #history-controls button:hover, #controls button:hover {
+                        background: #eee;
+                        border-color: #ccc;
+                        color: #333;
+                    }
+                    #tabs-wrapper { 
+                        flex-grow: 1;
+                        display: flex;
+                        align-items: center;
+                        height: 100%;
+                        overflow-x: auto;
+                        -webkit-overflow-scrolling: touch;
+                        margin: 0 15px;
+                    }
+                    #tabs-wrapper::-webkit-scrollbar { display: none; }
                     .tab { 
                         padding: 4px 12px; 
-                        margin-right: 2px; 
+                        margin-right: 4px; 
                         cursor: pointer; 
-                        font-size: 12px; 
-                        color: #555; 
-                        background: #e1e1e1;
-                        border: 1px solid #ccc;
+                        font-size: 11px; 
+                        color: #666; 
+                        background: #ececec;
+                        border: 1px solid #ddd;
                         border-bottom: none;
                         border-radius: 4px 4px 0 0;
                         white-space: nowrap;
-                        transition: background 0.2s;
+                        transition: all 0.2s;
                         align-self: flex-end;
+                        display: flex;
+                        align-items: center;
+                        gap: 8px;
+                        max-width: 140px; /* Limit width */
                     }
-                    .add-tab {
-                        font-weight: bold;
-                        color: #333;
-                        background: #ddd;
-                        padding: 4px 10px;
+                    .tab span {
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
                     }
-                    #layout-select {
-                        background: #fff;
-                        border: 1px solid #ccc;
-                        border-radius: 3px;
-                        outline: none;
+                    .tab-close {
+                        font-size: 12px;
+                        color: #aaa;
+                        border-radius: 50%;
+                        width: 14px;
+                        height: 14px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        line-height: 1;
+                        opacity: 0.6;
+                        transition: all 0.2s;
+                    }
+                    .tab-close:hover {
+                        background: #ff4d4f;
+                        color: #fff;
+                        opacity: 1;
                     }
                     .tab.active { 
                         background: #fff; 
                         color: #000; 
                         font-weight: 600;
                         position: relative;
-                        top: 1px; /* Overlap the border-top of container */
+                        top: 1px;
+                        border-bottom: 2px solid #fff;
+                        box-shadow: 0 -2px 4px rgba(0,0,0,0.03);
                     }
-                    .tab:hover { background: #d0d0d0; }
-                    .tab.active:hover { background: #fff; }
+                    .tab:hover:not(.active) { background: #f0f0f0; }
+                    select {
+                        background: #fff;
+                        border: 1px solid #ddd;
+                        border-radius: 4px;
+                        font-size: 11px;
+                        padding: 2px 4px;
+                        outline: none;
+                        color: #666;
+                    }
                 </style>
 			</head>
 			<body>
