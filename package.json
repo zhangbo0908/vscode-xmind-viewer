@@ -2,8 +2,8 @@
     "name": "vscode-xmind-viewer",
     "publisher": "local-test",
     "displayName": "XMind Viewer",
-    "description": "Premium XMind Editor for VS Code (XMind compatibility fix)",
-    "version": "0.1.2",
+    "description": "Premium XMind Editor for VS Code (Includes latest documentation)",
+    "version": "0.1.3",
     "engines": {
         "vscode": "^1.85.0"
     },
