@@ -81,22 +81,24 @@ export class XMindEditorProvider implements vscode.CustomEditorProvider<XMindDoc
         // Add the webview to our internal set of active webviews
         this.webviews.add(document.uri, webviewPanel);
 
-        // Setup initial content for the webview
+        // Setup initial options
         webviewPanel.webview.options = {
             enableScripts: true,
         };
-        webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview);
 
+        // Attach listeners BEFORE setting the HTML to avoid missing the 'ready' message
         webviewPanel.webview.onDidReceiveMessage(e => this.onMessage(document, e));
 
-        // Wait for the webview to be properly ready before sending the document data
         webviewPanel.webview.onDidReceiveMessage(e => {
             if (e.type === 'ready') {
+                const data = document.documentData;
                 this.postMessage(webviewPanel, 'update', {
-                    data: Array.from(document.documentData)
+                    data: Array.from(data)
                 });
             }
         });
+
+        webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview);
     }
 
     private readonly _onDidChangeCustomDocument = new vscode.EventEmitter<vscode.CustomDocumentEditEvent<XMindDocument>>();
@@ -175,6 +177,8 @@ export class XMindEditorProvider implements vscode.CustomEditorProvider<XMindDoc
                         flex: 1;
                         width: 100%; 
                         height: 0; /* Important for flex-grow to work correctly */
+                        position: relative;
+                        background: #fff;
                     }
                     #tab-container { 
                         flex-shrink: 0;
@@ -182,9 +186,9 @@ export class XMindEditorProvider implements vscode.CustomEditorProvider<XMindDoc
                         background: #f0f0f0; 
                         border-top: 1px solid #ccc; 
                         display: flex; 
-                        align-items: flex-end; 
+                        align-items: center; 
                         padding: 0 10px;
-                        overflow-x: auto;
+                        overflow: hidden;
                         z-index: 100;
                     }
                     .tab { 
@@ -199,6 +203,19 @@ export class XMindEditorProvider implements vscode.CustomEditorProvider<XMindDoc
                         border-radius: 4px 4px 0 0;
                         white-space: nowrap;
                         transition: background 0.2s;
+                        align-self: flex-end;
+                    }
+                    .add-tab {
+                        font-weight: bold;
+                        color: #333;
+                        background: #ddd;
+                        padding: 4px 10px;
+                    }
+                    #layout-select {
+                        background: #fff;
+                        border: 1px solid #ccc;
+                        border-radius: 3px;
+                        outline: none;
                     }
                     .tab.active { 
                         background: #fff; 

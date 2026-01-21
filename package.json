@@ -2,8 +2,8 @@
     "name": "vscode-xmind-viewer",
     "publisher": "local-test",
     "displayName": "XMind Viewer",
-    "description": "Preview and Edit Multi-sheet XMind files in VS Code (with fixed UI)",
-    "version": "0.0.5",
+    "description": "Premium XMind Editor for VS Code (XMind compatibility fix)",
+    "version": "0.1.2",
     "engines": {
         "vscode": "^1.85.0"
     },

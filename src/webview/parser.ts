@@ -6,36 +6,74 @@ let currentSettings: any = null; // Store settings/styles from original file if 
 
 /**
  * Parses initial XMind data and caches the zip structure.
+ * If data is empty or invalid, returns a default sheet.
  */
 export async function parseXMind(data: Uint8Array): Promise<any[]> {
-    const zip = await JSZip.loadAsync(data);
-    currentZip = zip as any;
-
-    const contentFile = zip.file('content.json');
-    if (!contentFile) {
-        throw new Error('Invalid XMind file: content.json not found');
+    // Check for empty or too-small data (minimum ZIP size is ~22 bytes for empty archive)
+    if (!data || data.length < 22) {
+        console.log('Parser: Empty or invalid data, returning default sheet');
+        currentZip = null; // Will be created fresh on pack
+        return [{
+            id: uuidv4(),
+            title: 'Sheet 1',
+            data: {
+                data: {
+                    text: 'Central Topic',
+                    layout: 'mindMap',
+                    uid: uuidv4()
+                },
+                children: []
+            }
+        }];
     }
 
-    const contentStr = await contentFile.async('string');
-    const content = JSON.parse(contentStr); // Array of sheets
+    try {
+        const zip = await JSZip.loadAsync(data);
+        currentZip = zip as any;
 
-    return content.map((sheet: any) => ({
-        id: sheet.id,
-        title: sheet.title || 'Untitled Sheet',
-        data: transformToMindMap(sheet.rootTopic)
-    }));
+        const contentFile = zip.file('content.json');
+        if (!contentFile) {
+            throw new Error('Invalid XMind file: content.json not found');
+        }
+
+        const contentStr = await contentFile.async('string');
+        const content = JSON.parse(contentStr); // Array of sheets
+
+        return content.map((sheet: any) => ({
+            id: sheet.id,
+            title: sheet.title || 'Untitled Sheet',
+            data: transformToMindMap(sheet.rootTopic)
+        }));
+    } catch (e) {
+        console.error('Parser: Failed to parse ZIP, returning default sheet:', e);
+        currentZip = null;
+        return [{
+            id: uuidv4(),
+            title: 'Sheet 1',
+            data: {
+                data: {
+                    text: 'Central Topic',
+                    layout: 'mindMap',
+                    uid: uuidv4()
+                },
+                children: []
+            }
+        }];
+    }
 }
 
 /**
  * Packs the current simple-mind-map sheets back into an XMind zip.
+ * Creates a complete XMind-compatible archive with all required files.
  */
 export async function packXMind(sheets: any[]): Promise<Uint8Array> {
+    const isNewFile = !currentZip;
+
     if (!currentZip) {
         // @ts-ignore: JSZip type definition mismatch workarounds
         currentZip = new JSZip.default();
     }
 
-    // Ensure currentZip is not null
     const zip = currentZip!;
 
     // Transform all sheets back to XMind JSON structure
@@ -49,26 +87,78 @@ export async function packXMind(sheets: any[]): Promise<Uint8Array> {
     // Update content.json
     zip.file('content.json', JSON.stringify(xmindContent));
 
-    // We might need to update manifest.json to ensure it points to content.json, 
-    // but usually it's standard. For robust support, we should check/write manifest.json
-    // However, existing XMind files usually have it.
+    // For new files, we need to create the required XMind structure
+    if (isNewFile) {
+        // Create manifest.json (required by XMind)
+        const manifest = {
+            "file-entries": {
+                "content.json": {},
+                "metadata.json": {}
+            }
+        };
+        zip.file('manifest.json', JSON.stringify(manifest));
+
+        // Create metadata.json (required by XMind)
+        const now = new Date().toISOString();
+        const metadata = {
+            "creator": {
+                "name": "XMind VS Code Viewer",
+                "version": "0.1.1"
+            },
+            "created": now,
+            "modified": now
+        };
+        zip.file('metadata.json', JSON.stringify(metadata));
+    } else {
+        // Update metadata.json modified time if it exists
+        const metadataFile = zip.file('metadata.json');
+        if (metadataFile) {
+            try {
+                const metaStr = await metadataFile.async('string');
+                const metadata = JSON.parse(metaStr);
+                metadata.modified = new Date().toISOString();
+                zip.file('metadata.json', JSON.stringify(metadata));
+            } catch (e) {
+                // Ignore metadata update errors
+            }
+        }
+    }
 
     // Generate new binary
     return await zip.generateAsync({ type: 'uint8array' });
 }
 
-function transformToMindMap(xmindNode: any): any {
+const LAYOUT_MAP: Record<string, string> = {
+    'org.xmind.ui.structure.mindmap': 'mindMap',
+    'org.xmind.ui.logical.right': 'logicalStructure',
+    'org.xmind.ui.logical.left': 'logicalStructureLeft',
+    'org.xmind.ui.org-chart.down': 'organizationStructure',
+    'org.xmind.ui.org-chart.up': 'organizationStructureUp',
+    'org.xmind.ui.tree.right': 'treeStructure',
+    'org.xmind.ui.tree.left': 'treeStructureLeft'
+};
+
+const REVERSE_LAYOUT_MAP: Record<string, string> = Object.entries(LAYOUT_MAP).reduce((acc, [k, v]) => {
+    acc[v] = k;
+    return acc;
+}, {} as Record<string, string>);
+
+function transformToMindMap(xmindNode: any, isRoot: boolean = true): any {
+    const layout = xmindNode.structureClass ? LAYOUT_MAP[xmindNode.structureClass] : (isRoot ? 'mindMap' : undefined);
+
     const node: any = {
         data: {
             text: xmindNode.title,
             // Store original ID to potentially preserve it
-            uid: xmindNode.id
+            uid: xmindNode.id,
+            // Map structureClass to simple-mind-map layout
+            layout: layout
         },
         children: []
     };
 
     if (xmindNode.children && xmindNode.children.attached) {
-        node.children = xmindNode.children.attached.map(transformToMindMap);
+        node.children = xmindNode.children.attached.map((child: any) => transformToMindMap(child, false));
     }
     return node;
 }
@@ -79,6 +169,10 @@ function transformToXMind(mmNode: any): any {
         "title": mmNode.data.text,
         "class": "topic"
     };
+
+    if (mmNode.data.layout) {
+        xmindNode.structureClass = REVERSE_LAYOUT_MAP[mmNode.data.layout];
+    }
 
     if (mmNode.children && mmNode.children.length > 0) {
         xmindNode.children = {
