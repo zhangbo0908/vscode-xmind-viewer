@@ -3,6 +3,8 @@ import { Disposable } from './dispose';
 
 export interface XMindDocumentDelegate {
     getFileData(): Promise<Uint8Array>;
+    undo(): Promise<void>;
+    redo(): Promise<void>;
 }
 
 export class XMindDocument extends Disposable implements vscode.CustomDocument {
@@ -69,8 +71,12 @@ export class XMindDocument extends Disposable implements vscode.CustomDocument {
     makeEdit() {
         this._onDidChange.fire({
             label: 'Edit',
-            undo: async () => { }, // Undo not implemented in this version
-            redo: async () => { }  // Redo not implemented in this version
+            undo: async () => {
+                await this._delegate.undo();
+            },
+            redo: async () => {
+                await this._delegate.redo();
+            }
         });
     }
 

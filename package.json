@@ -3,7 +3,7 @@
     "publisher": "local-test",
     "displayName": "XMind Viewer",
     "description": "Premium XMind Editor for VS Code (Full features & Style preservation)",
-    "version": "0.1.7",
+    "version": "0.2.19",
     "engines": {
         "vscode": "^1.85.0"
     },
@@ -15,6 +15,51 @@
     ],
     "main": "./dist/extension.js",
     "contributes": {
+        "commands": [
+            {
+                "command": "xmind.exportPNG",
+                "title": "XMind: Export as PNG",
+                "icon": "$(file-media)"
+            },
+            {
+                "command": "xmind.exportSVG",
+                "title": "XMind: Export as SVG",
+                "icon": "$(file-code)"
+            },
+            {
+                "command": "xmind.exportMarkdown",
+                "title": "XMind: Export as Markdown",
+                "icon": "$(markdown)"
+            }
+        ],
+        "menus": {
+            "editor/title": [
+                {
+                    "command": "xmind.exportPNG",
+                    "when": "activeCustomEditorId == 'vscode-xmind-viewer.xmindEditor'",
+                    "group": "navigation"
+                },
+                {
+                    "command": "xmind.exportMarkdown",
+                    "when": "activeCustomEditorId == 'vscode-xmind-viewer.xmindEditor'",
+                    "group": "navigation"
+                }
+            ],
+            "commandPalette": [
+                {
+                    "command": "xmind.exportPNG",
+                    "when": "activeCustomEditorId == 'vscode-xmind-viewer.xmindEditor'"
+                },
+                {
+                    "command": "xmind.exportSVG",
+                    "when": "activeCustomEditorId == 'vscode-xmind-viewer.xmindEditor'"
+                },
+                {
+                    "command": "xmind.exportMarkdown",
+                    "when": "activeCustomEditorId == 'vscode-xmind-viewer.xmindEditor'"
+                }
+            ]
+        },
         "customEditors": [
             {
                 "viewType": "vscode-xmind-viewer.xmindEditor",

@@ -16,6 +16,14 @@ export class XMindEditorProvider implements vscode.CustomEditorProvider<XMindDoc
             },
             supportsMultipleEditorsPerDocument: false,
         });
+
+        // Register export commands
+        context.subscriptions.push(
+            vscode.commands.registerCommand('xmind.exportPNG', (uri?: vscode.Uri) => provider.triggerExport('png', uri)),
+            vscode.commands.registerCommand('xmind.exportSVG', (uri?: vscode.Uri) => provider.triggerExport('svg', uri)),
+            vscode.commands.registerCommand('xmind.exportMarkdown', (uri?: vscode.Uri) => provider.triggerExport('md', uri))
+        );
+
         return providerRegistration;
     }
 
@@ -46,6 +54,16 @@ export class XMindEditorProvider implements vscode.CustomEditorProvider<XMindDoc
                 const panel = webviewsForDocument[0];
                 const response = await this.postMessageWithResponse<number[]>(panel, 'getFileData', {});
                 return new Uint8Array(response);
+            },
+            undo: async () => {
+                for (const panel of this.webviews.get(document.uri)) {
+                    this.postMessage(panel, 'undo', {});
+                }
+            },
+            redo: async () => {
+                for (const panel of this.webviews.get(document.uri)) {
+                    this.postMessage(panel, 'redo', {});
+                }
             }
         });
 
@@ -64,6 +82,14 @@ export class XMindEditorProvider implements vscode.CustomEditorProvider<XMindDoc
             for (const webviewPanel of this.webviews.get(document.uri)) {
                 this.postMessage(webviewPanel, 'update', {
                     data: Array.from(e.content ?? new Uint8Array())
+                });
+            }
+        }));
+
+        listeners.push(vscode.window.onDidChangeActiveColorTheme(e => {
+            for (const panel of this.webviews.get(uri)) {
+                this.postMessage(panel, 'theme-change', {
+                    kind: e.kind
                 });
             }
         }));
@@ -129,6 +155,31 @@ export class XMindEditorProvider implements vscode.CustomEditorProvider<XMindDoc
         panel.webview.postMessage({ type, body });
     }
 
+    private triggerExport(type: string, uri?: vscode.Uri) {
+        let activePanel: vscode.WebviewPanel | undefined;
+
+        // Priority 0: Try to find panel by URI (passed from command context)
+        if (uri && uri instanceof vscode.Uri) {
+            const panels = Array.from(this.webviews.get(uri));
+            if (panels.length > 0) {
+                // Pick the active or visible one first, otherwise just the first one
+                activePanel = panels.find(p => p.active) || panels.find(p => p.visible) || panels[0];
+            }
+        }
+
+        if (!activePanel) {
+            activePanel = this.webviews.activePanel;
+        }
+
+        if (activePanel) {
+            this.postMessage(activePanel, 'export', { type }); // Send to webview to trigger export logic
+        } else {
+            vscode.window.showErrorMessage('No active XMind editor found.');
+        }
+    }
+
+
+
     private postMessageWithResponse<R = any>(panel: vscode.WebviewPanel, type: string, body: any): Promise<R> {
         const requestId = this._requestIdPool++;
         const p = new Promise<R>(resolve => {
@@ -155,6 +206,44 @@ export class XMindEditorProvider implements vscode.CustomEditorProvider<XMindDoc
                 const callback = this._callbacks.get(message.requestId);
                 callback?.(message.body);
                 return;
+            case 'save-export':
+                this.handleSaveExport(document, message.body);
+                break;
+            case 'error':
+                vscode.window.showErrorMessage(message.body);
+                break;
+        }
+    }
+
+    private async handleSaveExport(document: XMindDocument, data: { content: string, type: string, filename: string }) {
+        let defaultUri: vscode.Uri;
+        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+        if (workspaceFolder) {
+            defaultUri = vscode.Uri.joinPath(workspaceFolder.uri, data.filename);
+        } else {
+            // Fallback: directory of the current file
+            defaultUri = vscode.Uri.joinPath(document.uri, '..', data.filename);
+        }
+
+        const options: vscode.SaveDialogOptions = {
+            defaultUri: defaultUri,
+            filters: {}
+        };
+        if (data.type === 'png') options.filters!['Images'] = ['png'];
+        if (data.type === 'svg') options.filters!['SVG'] = ['svg'];
+        if (data.type === 'md') options.filters!['Markdown'] = ['md'];
+
+        const uri = await vscode.window.showSaveDialog(options);
+        if (uri) {
+            let buffer: Uint8Array;
+            if (data.type === 'png') {
+                const base64Data = data.content.split(',')[1];
+                buffer = Buffer.from(base64Data, 'base64');
+            } else {
+                buffer = Buffer.from(data.content, 'utf8');
+            }
+            await vscode.workspace.fs.writeFile(uri, buffer);
+            vscode.window.showInformationMessage(`Successfully exported to ${uri.fsPath}`);
         }
     }
 
@@ -181,12 +270,19 @@ export class XMindEditorProvider implements vscode.CustomEditorProvider<XMindDoc
                         display: flex;
                         flex-direction: column;
                     }
+                    .vscode-dark, .vscode-dark body {
+                        background-color: #1e1e1e;
+                        color: #ccc;
+                    }
                     #mindmap { 
                         flex: 1;
                         width: 100%; 
                         height: 0;
                         position: relative;
                         background: #fff;
+                    }
+                    .vscode-dark #mindmap {
+                        background: #1e1e1e;
                     }
                     #tab-container {
                         flex-shrink: 0;
@@ -286,7 +382,6 @@ export class XMindEditorProvider implements vscode.CustomEditorProvider<XMindDoc
                         border-bottom: 2px solid #fff;
                         box-shadow: 0 -2px 4px rgba(0,0,0,0.03);
                     }
-                    .tab:hover:not(.active) { background: #f0f0f0; }
                     select {
                         background: #fff;
                         border: 1px solid #ddd;
@@ -296,9 +391,73 @@ export class XMindEditorProvider implements vscode.CustomEditorProvider<XMindDoc
                         outline: none;
                         color: #666;
                     }
+                    .export-dropdown {
+                        position: relative;
+                        display: inline-block;
+                    }
+                    .dropdown-content {
+                        display: none;
+                        position: absolute;
+                        right: 0;
+                        bottom: 40px;
+                        background-color: #f9f9f9;
+                        min-width: 130px;
+                        box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+                        z-index: 1000;
+                        border-radius: 4px;
+                        overflow: hidden;
+                    }
+                    .vscode-dark .dropdown-content {
+                        background-color: #2d2d2d;
+                        box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.5);
+                    }
+                    .dropdown-content a {
+                        color: #333;
+                        padding: 8px 12px;
+                        text-decoration: none;
+                        display: block;
+                        font-size: 12px;
+                    }
+                    .vscode-dark .dropdown-content a { color: #ccc; }
+                    .dropdown-content a:hover { background-color: #eee; }
+                    .vscode-dark .dropdown-content a:hover { background-color: #3e3e3e; }
+                    .export-dropdown.open .dropdown-content { display: block; }
+                    /* 暗色模式样式 - Sheet 栏 */
+                    .vscode-dark #tab-container {
+                        background: #252526;
+                        border-top-color: #3c3c3c;
+                        box-shadow: 0 -2px 5px rgba(0,0,0,0.2);
+                    }
+                    .vscode-dark #history-controls button, .vscode-dark #controls button {
+                        color: #ccc;
+                    }
+                    .vscode-dark #history-controls button:hover, .vscode-dark #controls button:hover {
+                        background: #3c3c3c;
+                        border-color: #555;
+                        color: #fff;
+                    }
+                    .vscode-dark .tab {
+                        background: #333 !important;
+                        color: #aaa !important;
+                        border-color: #444 !important;
+                    }
+                    .vscode-dark .tab.active {
+                        background: #1e1e1e !important;
+                        color: #e0e0e0 !important;
+                        border-bottom-color: #1e1e1e !important;
+                    }
+                    .vscode-dark .tab-close {
+                        color: #888;
+                    }
+                    .vscode-dark select {
+                        background: #3c3c3c;
+                        border-color: #555;
+                        color: #ccc;
+                    }
+
                 </style>
 			</head>
-			<body>
+			<body class="${vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark || vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.HighContrast ? 'vscode-dark' : 'vscode-light'}">
 				<div id="mindmap"></div>
                 <div id="tab-container"></div>
 				<script nonce="${nonce}" src="${scriptUri}"></script>
@@ -329,5 +488,29 @@ class WebviewCollection {
         webviewPanel.onDidDispose(() => {
             this._webviews.delete(entry);
         });
+    }
+
+    public get activePanel(): vscode.WebviewPanel | undefined {
+        const entries = Array.from(this._webviews);
+        // Priority 1: Strictly active panel
+        const activeEntry = entries.find(entry => entry.webviewPanel.active);
+        if (activeEntry) {
+            return activeEntry.webviewPanel;
+        }
+
+        // Priority 2: If only one panel is visible, assume it's the target (handles focus loss cases)
+        const visibleEntries = entries.filter(entry => entry.webviewPanel.visible);
+        if (visibleEntries.length === 1) {
+            return visibleEntries[0].webviewPanel;
+        }
+
+        // Priority 3: Fallback - if there is only one webview in total, us it.
+        // This covers cases where the user clicked a command from the title bar (stealing focus)
+        // and VS Code hasn't updated the active/visible state yet, or for single-file users.
+        if (entries.length === 1) {
+            return entries[0].webviewPanel;
+        }
+
+        return undefined;
     }
 }

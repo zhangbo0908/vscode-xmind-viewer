@@ -1,0 +1,40 @@
+# VS Code Extension Ignore File
+
+# Source files
+src/**
+.vscode/**
+.vscode-test/**
+
+# Build artifacts
+out/**
+*.vsix
+
+# Development files
+.gitignore
+.editorconfig
+.eslintrc.json
+tsconfig.json
+webpack.config.js
+*.map
+
+# Documentation (keep only README)
+CLAUDE.md
+walkthrough.md
+
+# Test files
+test.xmind
+**/test/**
+**/*.test.ts
+
+# Dependencies (already bundled in dist/)
+node_modules/**
+
+# Version control
+.git/**
+.github/**
+
+# macOS
+.DS_Store
+
+# Logs
+*.log

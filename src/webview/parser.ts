@@ -1,7 +1,8 @@
-import * as JSZip from 'jszip';
+// @ts-ignore
+import JSZip from 'jszip';
 import { v4 as uuidv4 } from 'uuid';
 
-let currentZip: any = null;
+let currentZip: typeof JSZip | null = null;
 let currentSettings: any = null; // Store settings/styles from original file if possible
 
 /**
@@ -29,7 +30,7 @@ export async function parseXMind(data: Uint8Array): Promise<any[]> {
 
     try {
         const zip = await JSZip.loadAsync(data);
-        currentZip = zip as any;
+        currentZip = zip;
 
         const contentFile = zip.file('content.json');
         if (!contentFile) {
@@ -70,8 +71,7 @@ export async function packXMind(sheets: any[]): Promise<Uint8Array> {
     const isNewFile = !currentZip;
 
     if (!currentZip) {
-        // @ts-ignore: JSZip type definition mismatch workarounds
-        currentZip = new JSZip.default();
+        currentZip = new JSZip();
     }
 
     const zip = currentZip!;
@@ -87,9 +87,8 @@ export async function packXMind(sheets: any[]): Promise<Uint8Array> {
     // Update content.json
     zip.file('content.json', JSON.stringify(xmindContent));
 
-    // For new files, we need to create the required XMind structure
-    if (isNewFile) {
-        // Create manifest.json (required by XMind)
+    // Ensure manifest.json exists
+    if (isNewFile || !zip.file('manifest.json')) {
         const manifest = {
             "file-entries": {
                 "content.json": {},
@@ -97,13 +96,15 @@ export async function packXMind(sheets: any[]): Promise<Uint8Array> {
             }
         };
         zip.file('manifest.json', JSON.stringify(manifest));
+    }
 
-        // Create metadata.json (required by XMind)
-        const now = new Date().toISOString();
+    // Ensure metadata.json exists or update it
+    const now = new Date().toISOString();
+    if (isNewFile || !zip.file('metadata.json')) {
         const metadata = {
             "creator": {
                 "name": "XMind VS Code Viewer",
-                "version": "0.1.1"
+                "version": "0.2.6"
             },
             "created": now,
             "modified": now
@@ -116,7 +117,7 @@ export async function packXMind(sheets: any[]): Promise<Uint8Array> {
             try {
                 const metaStr = await metadataFile.async('string');
                 const metadata = JSON.parse(metaStr);
-                metadata.modified = new Date().toISOString();
+                metadata.modified = now;
                 zip.file('metadata.json', JSON.stringify(metadata));
             } catch (e) {
                 // Ignore metadata update errors
@@ -124,8 +125,14 @@ export async function packXMind(sheets: any[]): Promise<Uint8Array> {
         }
     }
 
-    // Generate new binary
-    return await zip.generateAsync({ type: 'uint8array' });
+    // Generate new binary with Deflate compression for compatibility
+    return await zip.generateAsync({
+        type: 'uint8array',
+        compression: 'DEFLATE',
+        compressionOptions: {
+            level: 6
+        }
+    });
 }
 
 const LAYOUT_MAP: Record<string, string> = {
